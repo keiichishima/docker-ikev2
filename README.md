@@ -29,3 +29,9 @@ The generated certificates will be located under the `clients` directory. The VP
 ## TODO
 
 Need more thoughts on SPLIT_TUNNELING configuration.
+
+## Acknowledgements
+
+The start script is stolen from [https://github.com/gaomd/docker-ikev2-vpn-server](https://github.com/gaomd/docker-ikev2-vpn-server).
+
+The config file template is stolen from [https://webnetforce.net/strongswan-ikev2-on-sakura-vps/](https://webnetforce.net/strongswan-ikev2-on-sakura-vps/)
