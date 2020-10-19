@@ -1,0 +1,32 @@
+#!/bin/bash
+
+function usage
+{
+	echo Usage: revoke-client CLIENT_ID
+	exit 1
+}
+
+# must have the CLIENT_ID arg
+if [ $# -ne 1 ]; then
+	usage
+fi
+CLIENT_ID=$1
+
+CLIENT_ROOT=/var/clients
+CLIENT_PRIVATE=${CLIENT_ROOT}/private
+CLIENT_CERTS=${CLIENT_ROOT}/certs
+CLIENT_P12=${CLIENT_ROOT}/p12
+/bin/mkdir -p ${CLIENT_PRIVATE}
+/bin/mkdir -p ${CLIENT_CERTS}
+/bin/mkdir -p ${CLIENT_P12}
+
+SERIAL=`/usr/sbin/ipsec pki						\
+	--print								\
+	--type x509							\
+	--in ${CLIENT_CERTS}/${CLIENT_ID}.cert.pem			\
+| /bin/grep serial:							\
+| /bin/sed -E "s/.*([0-9a-fA-F:]{23})/\1/"`
+
+echo $SERIAL >> /var/clients/revoked-serial-numbers
+
+/usr/bin/update-crl

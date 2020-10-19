@@ -1,0 +1,86 @@
+#!/bin/bash
+
+function usage
+{
+	echo Usage: generate-client -p PASSWORD [-l LIFETIME] CLIENT_ID
+	exit 1
+}
+
+while getopts "l:p:" opts;
+do
+	case ${opts} in
+	l)
+		LIFETIME=${OPTARG}
+		;;
+	p)
+		PASSWORD=${OPTARG}
+		;;
+	*)
+		usage
+	esac
+done
+shift $((OPTIND-1))
+
+# must have the CLIENT_ID arg
+if [ $# -ne 1 ]; then
+	usage
+fi
+CLIENT_ID=$1
+
+# must have a password
+if [ "X${PASSWORD}" == "X" ]; then
+	usage
+fi
+
+# default lifetime is 365 days if not specified
+LIFETIME=${LIFETIME:-365}
+
+CLIENT_ROOT=/var/clients
+CLIENT_PRIVATE=${CLIENT_ROOT}/private
+CLIENT_CERTS=${CLIENT_ROOT}/certs
+CLIENT_P12=${CLIENT_ROOT}/p12
+/bin/mkdir -p ${CLIENT_PRIVATE}
+/bin/mkdir -p ${CLIENT_CERTS}
+/bin/mkdir -p ${CLIENT_P12}
+
+if [ -e ${CLIENT_PRIVATE}/${CLIENT_ID}.key.pem ]; then
+	echo Client ${CLIENT_ID} exists
+	echo Do you delete and generate a new certificate? [y/n]
+	read YN
+	if [ "X${YN}" != "Xy" -a "X${YN}" != "XY" ]; then
+		echo Aborted
+		exit 1
+	fi
+	/usr/bin/revoke-client ${CLIENT_ID}
+fi
+echo Generating	a new certificate for ${CLIENT_ID}
+
+/usr/sbin/ipsec pki							\
+	--gen								\
+	--type rsa							\
+	--size 4096							\
+	--outform pem							\
+	> ${CLIENT_PRIVATE}/${CLIENT_ID}.key.pem
+/bin/chmod 0600 ${CLIENT_PRIVATE}/${CLIENT_ID}.key.pem
+/usr/sbin/ipsec pki							\
+	--pub								\
+	--type rsa							\
+	--in ${CLIENT_PRIVATE}/${CLIENT_ID}.key.pem				\
+| /usr/sbin/ipsec pki							\
+	--issue								\
+	--lifetime ${LIFETIME}						\
+	--cakey /etc/ipsec.d/private/ca.key.pem				\
+	--cacert /etc/ipsec.d/cacerts/ca.cert.pem			\
+	--dn "C=${COUNTRY}, O=${ORG}, CN=${CLIENT_ID}@${DOMAIN}" 	\
+	--san ${CLIENT_ID}@${DOMAIN}					\
+	--outform pem							\
+	> ${CLIENT_CERTS}/${CLIENT_ID}.cert.pem
+/usr/bin/openssl pkcs12							\
+	-export								\
+	-passout pass:${PASSWORD}					\
+	-inkey ${CLIENT_PRIVATE}/${CLIENT_ID}.key.pem			\
+	-in ${CLIENT_CERTS}/${CLIENT_ID}.cert.pem			\
+	-name "VPN Certificate for ${CLIENT_ID}@${DOMAIN}" 		\
+	-certfile /etc/ipsec.d/cacerts/ca.cert.pem			\
+	-caname "${ORG} Root CA"					\
+	-out ${CLIENT_P12}/${CLIENT_ID}.p12

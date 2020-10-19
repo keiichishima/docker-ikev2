@@ -1,0 +1,3 @@
+#!/bin/sh
+
+/usr/bin/docker exec ikev2 /usr/bin/generate-client $@

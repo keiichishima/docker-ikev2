@@ -1,0 +1,101 @@
+#!/bin/bash
+
+# The MIT License (MIT)
+#
+# Copyright (c) 2017 Mengdi Gao, Nebukad93
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+
+# https://wiki.strongswan.org/projects/strongswan/wiki/ForwardingAndSplitTunneling
+# Continue reading: https://wiki.strongswan.org/projects/strongswan/wiki/VirtualIP
+#/sbin/sysctl -w net.ipv4.ip_forward=1
+#/sbin/sysctl net.ipv6.conf.all.forwarding=1
+#/sbin/sysctl net.ipv6.conf.eth0.proxy_ndp=1
+/sbin/iptables -t nat -A POSTROUTING -s 10.8.0.0/16 -o eth0 -m policy --dir out --pol ipsec -j ACCEPT
+/sbin/iptables -t nat -A POSTROUTING -s 10.8.0.0/16 -o eth0 -j MASQUERADE
+#/sbin/ip6tables -t nat -A POSTROUTING -s fd6a:6ce3:c8d8:7caa::/64 -o eth0 -m policy --dir out --pol ipsec -j ACCEPT
+#/sbin/ip6tables -t nat -A POSTROUTING -s fd6a:6ce3:c8d8:7caa::/64 -o eth0 -j MASQUERADE
+
+# hotfix for https://github.com/gaomd/docker-ikev2-vpn-server/issues/7
+/bin/rm -f /var/run/starter.charon.pid
+
+# Generate /etc/ipsec.d/* directories
+for d in aacerts acerts cacerts certs crls ocspcerts private reqs
+do
+	/bin/mkdir -p /etc/ipsec.d/${d}
+done
+/bin/chmod 0700 /etc/ipsec.d/private
+
+# Generate CA and server certificate if not exist
+CA_LIFETIME=${CA_LIFETIME:-3650}
+if [ ! -e /etc/ipsec.d/cacerts/ca.cert.pem ]; then
+	/usr/sbin/ipsec pki						\
+		--gen							\
+		--type rsa						\
+		--size 4096						\
+		--outform pem						\
+		> /etc/ipsec.d/private/ca.key.pem
+	/bin/chmod 0600 /etc/ipsec.d/private/ca.key.pem
+	/usr/sbin/ipsec pki						\
+		--self							\
+		--ca							\
+		--type rsa						\
+		--in /etc/ipsec.d/private/ca.key.pem			\
+		--lifetime ${CA_LIFETIME}				\
+		--dn "C=${COUNTRY}, O=${ORG}, CN=${ORG} Root CA"	\
+		--outform pem						\
+		> /etc/ipsec.d/cacerts/ca.cert.pem
+fi
+SERVER_LIFETIME=${SERVER_LIFETIME:-3650}
+if [ ! -e /etc/ipsec.d/certs/server.cert.pem ]; then
+	/usr/sbin/ipsec pki						\
+		--gen							\
+		--type rsa						\
+		--size 4096						\
+		--outform pem						\
+		> /etc/ipsec.d/private/server.key.pem
+	/bin/chmod 0600 /etc/ipsec.d/private/server.key.pem
+	/usr/sbin/ipsec pki						\
+		--pub							\
+		--type rsa						\
+		--in /etc/ipsec.d/private/server.key.pem		\
+	| /usr/sbin/ipsec pki						\
+		--issue							\
+		--lifetime ${SERVER_LIFETIME}				\
+		--cacert /etc/ipsec.d/cacerts/ca.cert.pem		\
+		--cakey /etc/ipsec.d/private/ca.key.pem			\
+		--dn "C=${COUNTRY}, O=${ORG}, CN=${HOSTNAME}.${DOMAIN}"	\
+		--san ${HOSTNAME}.${DOMAIN}				\
+		--san @${HOSTNAME}.${DOMAIN}				\
+		--flag serverAuth					\
+		--flag ikeIntermediate					\
+		--outform pem						\
+		> /etc/ipsec.d/certs/server.cert.pem
+fi
+
+# Replace /etc/ipsec.conf
+if [ ${SPLIT_TUNNELING} -eq 1 ]; then
+	LEFTSUBNET=10.8.0.0/16
+fi
+/bin/sed -i -e "s#{LEFTSUBNET}#${LEFTSUBNET:-0.0.0.0/0}#g" /etc/ipsec.conf
+/bin/sed -i -e "s/{LEFTID}/${HOSTNAME}.${DOMAIN}/g" /etc/ipsec.conf
+/bin/sed -i -e "s/{DNS}/${DNS:-8.8.8.8,8.8.4.4}/g" /etc/ipsec.conf
+
+# http://wiki.loopop.net/doku.php?id=server:vpn:strongswanonopenvz
+/usr/sbin/ipsec start --nofork

@@ -1,0 +1,18 @@
+#!/bin/bash
+
+/usr/bin/sort -u -o /var/clients/revoked-serial-numbers /var/clients/revoked-serial-numbers
+
+SERIAL_LIST=
+for sn in `/bin/cat /var/clients/revoked-serial-numbers`
+do
+	SERIAL_LIST="${SERIAL_LIST} --serial ${sn}"
+done
+
+/usr/sbin/ipsec pki							\
+	--signcrl							\
+	--cakey /etc/ipsec.d/private/ca.key.pem				\
+	--cacert /etc/ipsec.d/cacerts/ca.cert.pem			\
+	${SERIAL_LIST}							\
+	--outform pem							\
+	> /etc/ipsec.d/crls/crl.pem
+	

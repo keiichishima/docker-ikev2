@@ -1,0 +1,24 @@
+version: "3"
+services:
+  ikev2:
+    image: keiichi/ikev2-alpine
+    build: .
+    container_name: ikev2
+    ports:
+      - 500:500/udp
+      - 4500:4500/udp
+    volumes:
+      - ./ipsec.d:/etc/ipsec.d
+      - ./clients:/var/clients
+    environment:
+      - COUNTRY=JP
+      - ORG=Kshima Organization
+      - HOSTNAME=vpn
+      - DOMAIN=kshima.org
+      - SPLIT_TUNNELING=1
+#      - DNS=1.1.1.1,1.0.0.1
+    logging:
+      driver: "journald"
+    cap_add:
+      - NET_ADMIN
+    restart: always
