@@ -15,7 +15,7 @@ services:
       - ORG=Kshima Organization
       - HOSTNAME=vpn
       - DOMAIN=kshima.org
-      - SPLIT_TUNNELING=1
+      - LEFTSUBNET=10.8.0.0/16
 #      - DNS=1.1.1.1,1.0.0.1
     logging:
       driver: "journald"
